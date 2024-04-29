@@ -105,6 +105,8 @@ async def option_two(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
     }
     context.bot_data.update(payload)
+    
+    return ConversationHandler.END
 
 
 async def receive_poll_answer(
