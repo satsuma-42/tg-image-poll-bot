@@ -29,11 +29,14 @@ QUESTION, PHOTO, OPTION_ONE, OPTION_TWO = range(4)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(update.effective_chat.id)
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!"
     )
 
+async def id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, text=update.effective_chat.id
+    )
 
 async def poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -169,6 +172,9 @@ if __name__ == "__main__":
 
     start_handler = CommandHandler("start", start)
     application.add_handler(start_handler)
+    
+    id_handler = MessageHandler(filters.COMMAND & filters.Text("/id"), id)
+    application.add_handler(id_handler)
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("poll", poll)],
