@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from telegram import (
     Update,
     InlineQueryResultArticle,
@@ -19,33 +20,68 @@ from telegram.ext import (
 )
 
 TOKEN = os.environ["TOKEN"]
-CHAT_ID = int(os.environ["CHAT_ID"])
+ORIGIN_CHAT_ID = int(os.environ["ORIGIN_CHAT_ID"])
+DEST_CHAT_ID = int(os.environ["DEST_CHAT_ID"])
+
 
 logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-QUESTION, PHOTO, OPTION_ONE, OPTION_TWO = range(4)
+QUESTION, PHOTO, OPTION_ONE, OPTION_TWO, DESCRIPTION, DURATION = range(6)
+
+# /start
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!"
+        chat_id=update.effective_chat.id,
+        text="Hello, world! Enter /newpoll to start creating a poll.",
     )
+
+
+# /help
+
+
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=
+        "/id - Output the current chat's ID\n"
+        "/newpoll - Start creating a new poll\n"
+        "/cancel - Can be used during the /newpoll conversation to cancel poll creation",
+    )
+
+
+# /id
+
 
 async def id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text=update.effective_chat.id
     )
 
-async def poll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    await update.message.reply_text(
-        "What is the question for this poll?",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+# /newpoll conversation
 
-    return QUESTION
+
+async def newpoll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.effective_chat.id == ORIGIN_CHAT_ID:
+        await update.message.reply_text(
+            "What is the question for this poll?",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
+        return QUESTION
+    else:
+        print(update.effective_chat.id)
+        await update.message.reply_text(
+            "You do not have permission to use this command",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
+        return ConversationHandler.END
 
 
 async def question(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,32 +120,79 @@ async def option_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def option_two(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    question = context.chat_data["question"]
-
     context.chat_data["options"].append(update.message.text)
-    options = context.chat_data["options"]
 
-    await context.bot.send_photo(chat_id=CHAT_ID, photo="user_photo.jpg")
+    await update.message.reply_text(
+        "Description (Type /skip to skip):",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    return DESCRIPTION
+
+
+async def description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.chat_data["description"] = update.message.text
+
+    await update.message.reply_text(
+        "Duration (In hours):",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    return DURATION
+
+async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        "Duration (In hours):",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    return DURATION
+
+async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.chat_data["duration"] = int(update.message.text) * 3600
+
+    question = context.chat_data["question"]
+    options = context.chat_data["options"]
+    
+    duration = context.chat_data["duration"]
+
+    await context.bot.send_photo(chat_id=DEST_CHAT_ID, photo="user_photo.jpg")
 
     message = await context.bot.send_poll(
-        CHAT_ID,
+        DEST_CHAT_ID,
         question,
         options,
         is_anonymous=True,
         allows_multiple_answers=True,
     )
+
+    if 'description' in context.chat_data:
+        description = context.chat_data["description"]
+        await context.bot.send_message(chat_id=DEST_CHAT_ID, text=description)
+    
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"The poll has been shared, and should conclude in {update.message.text} hours")
+
     # Save some info about the poll the bot_data for later use in receive_poll_answer
     payload = {
         message.poll.id: {
             "questions": options,
             "message_id": message.message_id,
-            "chat_id": CHAT_ID,
+            "chat_id": DEST_CHAT_ID,
             "answers": 0,
         }
     }
     context.bot_data.update(payload)
-    
+
+    context.job_queue.run_once(
+        callback_end_poll, duration, data=message.message_id, chat_id=DEST_CHAT_ID
+    )
+
     return ConversationHandler.END
+
+
+# End /newpoll conversation
+
+# Poll update handling
 
 
 async def receive_poll_answer(
@@ -152,43 +235,70 @@ async def receive_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display a help message"""
-    await update.message.reply_text("Use /quiz, /poll or /preview to test this bot.")
-
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     user = update.message.from_user
     await update.message.reply_text(
-        "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
+        "Bye!", reply_markup=ReplyKeyboardRemove()
     )
 
     return ConversationHandler.END
 
 
+# Job queue stuff
+
+
+async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
+    message_id = context.job.data
+
+    closed_poll = await context.bot.stop_poll(DEST_CHAT_ID, int(message_id))
+
+    data = closed_poll.options
+    item_with_highest_votes = [max(data, key=lambda x: x["voter_count"])]
+
+    if len(item_with_highest_votes) > 1:
+        text = f"This poll has concluded! It was a draw!"
+    else:
+        text = f"This poll has concluded! Winner is {item_with_highest_votes[0].text}!"
+
+    await context.bot.send_message(
+        chat_id=DEST_CHAT_ID, reply_to_message_id=message_id, text=text
+    )
+
+
 if __name__ == "__main__":
     application = ApplicationBuilder().token(TOKEN).build()
+    job_queue = application.job_queue
 
+    # /start
     start_handler = CommandHandler("start", start)
     application.add_handler(start_handler)
-    
+
+    # /help
+    help_handler = CommandHandler("help", help)
+    application.add_handler(help_handler)
+
+    # /newpoll
     id_handler = MessageHandler(filters.COMMAND & filters.Text("/id"), id)
     application.add_handler(id_handler)
 
+    # /newpoll
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("poll", poll)],
+        entry_points=[CommandHandler("newpoll", newpoll)],
         states={
-            QUESTION: [MessageHandler(filters.TEXT, question)],
+            QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, question)],
             PHOTO: [MessageHandler(filters.PHOTO, photo)],
-            OPTION_ONE: [MessageHandler(filters.TEXT, option_one)],
-            OPTION_TWO: [MessageHandler(filters.TEXT, option_two)],
+            OPTION_ONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, option_one)],
+            OPTION_TWO: [MessageHandler(filters.TEXT & ~filters.COMMAND, option_two)],
+            DESCRIPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, description),
+                CommandHandler("skip", skip_description),
+            ],
+            DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, duration)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
     application.add_handler(conv_handler)
-
     application.add_handler(MessageHandler(filters.POLL, receive_poll))
     application.add_handler(PollAnswerHandler(receive_poll_answer))
 
