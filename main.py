@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import random
 from telegram import (
     Update,
     InlineQueryResultArticle,
@@ -46,8 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=
-        "/id - Output the current chat's ID\n"
+        text="/id - Output the current chat's ID\n"
         "/newpoll - Start creating a new poll\n"
         "/cancel - Can be used during the /newpoll conversation to cancel poll creation",
     )
@@ -75,7 +75,6 @@ async def newpoll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return QUESTION
     else:
-        print(update.effective_chat.id)
         await update.message.reply_text(
             "You do not have permission to use this command",
             reply_markup=ReplyKeyboardRemove(),
@@ -140,6 +139,7 @@ async def description(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return DURATION
 
+
 async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "Duration (In hours):",
@@ -148,12 +148,13 @@ async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     return DURATION
 
+
 async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.chat_data["duration"] = int(update.message.text) * 3600
 
     question = context.chat_data["question"]
     options = context.chat_data["options"]
-    
+
     duration = context.chat_data["duration"]
 
     await context.bot.send_photo(chat_id=DEST_CHAT_ID, photo="user_photo.jpg")
@@ -162,15 +163,18 @@ async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
         DEST_CHAT_ID,
         question,
         options,
-        is_anonymous=True,
-        allows_multiple_answers=True,
+        is_anonymous=False,
+        allows_multiple_answers=False,
     )
 
-    if 'description' in context.chat_data:
+    if "description" in context.chat_data:
         description = context.chat_data["description"]
         await context.bot.send_message(chat_id=DEST_CHAT_ID, text=description)
-    
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"The poll has been shared, and should conclude in {update.message.text} hours")
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"The poll has been shared, and should conclude in {update.message.text} hours",
+    )
 
     # Save some info about the poll the bot_data for later use in receive_poll_answer
     payload = {
@@ -179,6 +183,7 @@ async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "message_id": message.message_id,
             "chat_id": DEST_CHAT_ID,
             "answers": 0,
+            "voters": [[], []],
         }
     }
     context.bot_data.update(payload)
@@ -198,27 +203,11 @@ async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_poll_answer(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Summarize a users poll vote"""
     answer = update.poll_answer
     answered_poll = context.bot_data[answer.poll_id]
-    try:
-        questions = answered_poll["questions"]
-    # this means this poll answer update is from an old poll, we can't do our answering then
-    except KeyError:
-        return
-    selected_options = answer.option_ids
-    answer_string = ""
-    for question_id in selected_options:
-        if question_id != selected_options[-1]:
-            answer_string += questions[question_id] + " and "
-        else:
-            answer_string += questions[question_id]
-    await context.bot.send_message(
-        answered_poll["chat_id"],
-        f"{update.effective_user.mention_html()} feels {answer_string}!",
-        parse_mode=ParseMode.HTML,
-    )
-    answered_poll["answers"] += 1
+    username = update.effective_user.username
+
+    answered_poll["voters"][int(answer.option_ids[0])].append(username)
 
 
 async def receive_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -238,9 +227,7 @@ async def receive_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     user = update.message.from_user
-    await update.message.reply_text(
-        "Bye!", reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("Bye!", reply_markup=ReplyKeyboardRemove())
 
     return ConversationHandler.END
 
@@ -252,17 +239,32 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
     message_id = context.job.data
 
     closed_poll = await context.bot.stop_poll(DEST_CHAT_ID, int(message_id))
+    poll_data = context.bot_data[closed_poll.id]
 
     data = closed_poll.options
-    item_with_highest_votes = [max(data, key=lambda x: x["voter_count"])]
 
-    if len(item_with_highest_votes) > 1:
-        text = f"This poll has concluded! It was a draw!"
-    else:
-        text = f"This poll has concluded! Winner is {item_with_highest_votes[0].text}!"
+    max_voter_count = float("-inf")  # Initialize with negative infinity
+    max_index = None
+
+    for index, item in enumerate(data):
+        voter_count = item["voter_count"]
+        if voter_count > max_voter_count:
+            max_voter_count = voter_count
+            max_index = index
+            text = f"This poll has concluded! Winner is {data[max_index].text}!"
+        elif voter_count == max_voter_count:
+            text = f"This poll has concluded! It was a draw!"
 
     await context.bot.send_message(
         chat_id=DEST_CHAT_ID, reply_to_message_id=message_id, text=text
+    )
+
+    winning_voters = poll_data["voters"][max_index]
+    random_voter = random.choice(winning_voters)
+
+    await context.bot.send_message(
+        chat_id=ORIGIN_CHAT_ID,
+        text=f"Winning voters: {winning_voters}\nRandom pick: {random_voter}",
     )
 
 
