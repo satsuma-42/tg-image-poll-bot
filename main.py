@@ -276,9 +276,7 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
     all_voters = poll_data["voters"][0] + poll_data["voters"][1]
     random_voter = random_winning_voter  # Hack to avoid issues from only one voter, and to run while loop
     if len(all_voters) > 1:
-        while (
-            random_voter == random_winning_voter
-        ):  # Make sure a different random voter is chosen
+        while random_voter == random_winning_voter:  # Make sure a different random voter is chosen
             random_voter = random.choice(all_voters)
 
     await context.bot.send_message(
