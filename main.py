@@ -289,10 +289,10 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
         "👑👑👑👑👑\n\n"
         "🏆 Poll Winner 🏆 \n"
         f"*{text}*" + "\n\n"
-        "🥇 Winning voter 🥇\n"
+        "🥇 Winning Voter Prize 🥇\n"
         f'Username: *{random_winning_voter["username"]}*' + "\n"
         f'Name: *{random_winning_voter["first_name"]}*' + "\n\n"
-        "🌟 Random voter 🌟\n"  # dizzy symbol
+        "🌟 Random Voter Prize 🌟\n"  # dizzy symbol
         f'Username: *{random_voter["username"]}*' + "\n"
         f'Name: *{random_voter["first_name"]}*' + "\n"
         "~~~",
