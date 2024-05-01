@@ -1,11 +1,8 @@
 import logging
 import os
-import time
 import random
 from telegram import (
     Update,
-    InlineQueryResultArticle,
-    InputTextMessageContent,
     ReplyKeyboardRemove,
 )
 from telegram.constants import ParseMode
@@ -14,7 +11,6 @@ from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     CommandHandler,
-    InlineQueryHandler,
     MessageHandler,
     PollAnswerHandler,
     ConversationHandler,
@@ -26,7 +22,10 @@ DEST_CHAT_ID = int(os.environ["DEST_CHAT_ID"])
 
 
 logging.basicConfig(
-    level=logging.ERROR, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.ERROR,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    filename="error.log",
+    filemode="a",
 )
 
 QUESTION, PHOTO, OPTION_ONE, OPTION_TWO, DESCRIPTION, DURATION = range(6)
@@ -150,7 +149,7 @@ async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.chat_data["duration"] = int(update.message.text) * 3600
+    context.chat_data["duration"] = float(update.message.text) * 3600
 
     question = context.chat_data["question"]
     options = context.chat_data["options"]
@@ -169,7 +168,11 @@ async def duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "description" in context.chat_data:
         description = context.chat_data["description"]
-        await context.bot.send_message(chat_id=DEST_CHAT_ID, text=description)
+        await context.bot.send_message(
+            chat_id=DEST_CHAT_ID,
+            reply_to_message_id=message.message_id,
+            text=description,
+        )
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -206,8 +209,11 @@ async def receive_poll_answer(
     answer = update.poll_answer
     answered_poll = context.bot_data[answer.poll_id]
     username = update.effective_user.username
+    first_name = update.effective_user.first_name
 
-    answered_poll["voters"][int(answer.option_ids[0])].append(username)
+    answered_poll["voters"][int(answer.option_ids[0])].append(
+        {"username": username, "first_name": first_name}
+    )
 
 
 async def receive_poll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -243,6 +249,8 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
 
     data = closed_poll.options
 
+    # Picking which option has the highest voter_count, and checking if a draw
+
     max_voter_count = float("-inf")  # Initialize with negative infinity
     max_index = None
 
@@ -251,20 +259,45 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
         if voter_count > max_voter_count:
             max_voter_count = voter_count
             max_index = index
-            text = f"This poll has concluded! Winner is {data[max_index].text}!"
+            text = data[max_index].text
+            winning_voters = poll_data["voters"][max_index]
         elif voter_count == max_voter_count:
-            text = f"This poll has concluded! It was a draw!"
+            text = "\xF0\x9F\x94\xABLooks like this one was a draw!\xF0\x9F\x94\xAB"
+            winning_voters = (
+                poll_data["voters"][0] + poll_data["voters"][1]
+            )  # If a draw, 'Winning voter' and 'Random voter' will be picked from both
+
+    # await context.bot.send_message(
+    #     chat_id=DEST_CHAT_ID, reply_to_message_id=message_id, text=text
+    # )
+
+    random_winning_voter = random.choice(winning_voters)
+
+    all_voters = poll_data["voters"][0] + poll_data["voters"][1]
+    random_voter = random_winning_voter  # Hack to avoid issues from only one voter, and to run while loop
+    if len(all_voters) > 1:
+        while (
+            random_voter == random_winning_voter
+        ):  # Make sure a different random voter is chosen
+            random_voter = random.choice(all_voters)
 
     await context.bot.send_message(
-        chat_id=DEST_CHAT_ID, reply_to_message_id=message_id, text=text
-    )
-
-    winning_voters = poll_data["voters"][max_index]
-    random_voter = random.choice(winning_voters)
-
-    await context.bot.send_message(
-        chat_id=ORIGIN_CHAT_ID,
-        text=f"Winning voters: {winning_voters}\nRandom pick: {random_voter}",
+        chat_id=DEST_CHAT_ID,
+        reply_to_message_id=message_id,
+        parse_mode="Markdown",
+        text="~~~\n"
+        "👑👑👑👑👑\n"
+        f'Here are the _"{closed_poll.question}"_  DuelPoll winners!\n'
+        "👑👑👑👑👑\n\n"
+        "🏆 Poll Winner 🏆 \n"
+        f"*{text}*" + "\n\n"
+        "🥇 Winning voter 🥇\n"
+        f'Username: *{random_winning_voter["username"]}*' + "\n"
+        f'Name: *{random_winning_voter["first_name"]}*' + "\n\n"
+        "🌟 Random voter 🌟\n"  # dizzy symbol
+        f'Username: *{random_voter["username"]}*' + "\n"
+        f'Name: *{random_voter["first_name"]}*' + "\n"
+        "~~~",
     )
 
 
