@@ -266,7 +266,7 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
             text = data[max_index].text
             winning_voters = poll_data["voters"][max_index]
         elif voter_count == max_voter_count:
-            text = "\xF0\x9F\x94\xABLooks like this one was a draw!\xF0\x9F\x94\xAB"
+            text = "⚔ Looks like this one was a draw! ⚔"
             winning_voters = (
                 poll_data["voters"][0] + poll_data["voters"][1]
             )  # If a draw, 'Winning voter' and 'Random voter' will be picked from both
