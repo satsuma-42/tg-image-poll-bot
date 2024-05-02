@@ -291,13 +291,13 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
         f"*{text}*" + "\n\n"
         "🥇 Winning Voter Prize 🥇\n"
         f'Username: *{random_winning_voter["username"]}*' + "\n"
-        f'Name: *{random_winning_voter["first_name"]}*' + "\n\n"
-        "🌟 Random Voter Prize 🌟\n"  # dizzy symbol
-        f'Username: *{random_voter["username"]}*' + "\n"
-        f'Name: *{random_voter["first_name"]}*' + "\n"
+        f'Name: *{random_winning_voter["first_name"]}*' + "\n"
         "~~~",
     )
 
+    # "🌟 Random Voter Prize 🌟\n"  # dizzy symbol
+    #     f'Username: *{random_voter["username"]}*' + "\n"
+    #     f'Name: *{random_voter["first_name"]}*' + "\n"
 
 if __name__ == "__main__":
     application = ApplicationBuilder().token(TOKEN).build()
