@@ -22,11 +22,14 @@ DEST_CHAT_ID = int(os.environ["DEST_CHAT_ID"])
 
 
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    filename="error.log",
+    filename="./data/log.log",
     filemode="a",
 )
+# set higher logging level for httpx to avoid all GET and POST requests being logged
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 QUESTION, PHOTO, OPTION_ONE, OPTION_TWO, DESCRIPTION, DURATION = range(6)
 
@@ -246,6 +249,7 @@ async def callback_end_poll(context: ContextTypes.DEFAULT_TYPE):
 
     closed_poll = await context.bot.stop_poll(DEST_CHAT_ID, int(message_id))
     poll_data = context.bot_data[closed_poll.id]
+    logger.info("Poll data for %s: %s", closed_poll.question, poll_data)
 
     data = closed_poll.options
 
